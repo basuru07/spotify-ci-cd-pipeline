@@ -16,7 +16,11 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 script {
-                    dockerImage = docker.build("${IMAGE_NAME}:latest", "--no-cache .")
+                    try {
+                        dockerImage = docker.build("${IMAGE_NAME}:latest", "--no-cache .")
+                    } catch (Exception e) {
+                        error "Docker build failed: ${e.message}"
+                    }
                 }
             }
         }
@@ -24,16 +28,20 @@ pipeline {
         stage('Test') {
             steps {
                 sh 'echo "Running basic validation checks"'
-                // Optional: Add HTML/CSS/JS linting (e.g., using htmlhint)
-                // Example: sh 'htmlhint *.html' (requires htmlhint installation)
+                // Add HTML validation with htmlhint (install it first via npm if needed)
+                sh 'htmlhint *.html || true' // || true to avoid failing the pipeline
             }
         }
 
         stage('Push to Docker Hub') {
             steps {
                 script {
-                    docker.withRegistry('https://registry.hub.docker.com', 'docker-credentials-id') {
-                        dockerImage.push('latest')
+                    try {
+                        docker.withRegistry('https://registry.hub.docker.com', 'docker-credentials-id') {
+                            dockerImage.push('latest')
+                        }
+                    } catch (Exception e) {
+                        error "Push to Docker Hub failed: ${e.message}"
                     }
                 }
             }
@@ -42,12 +50,16 @@ pipeline {
         stage('Deploy') {
             steps {
                 script {
-                    // Stop and remove any existing container
-                    sh 'docker stop spotify-web-container || true'
-                    sh 'docker rm spotify-web-container || true'
+                    try {
+                        // Stop and remove any existing container
+                        sh 'docker stop spotify-web-container || true'
+                        sh 'docker rm spotify-web-container || true'
 
-                    // Run the new container
-                    sh "docker run -d --name spotify-web-container -p 80:80 ${IMAGE_NAME}:latest"
+                        // Run the new container
+                        sh "docker run -d --name spotify-web-container -p 80:80 ${IMAGE_NAME}:latest"
+                    } catch (Exception e) {
+                        error "Deployment failed: ${e.message}"
+                    }
                 }
             }
         }
@@ -57,6 +69,15 @@ pipeline {
         always {
             // Clean up workspace
             cleanWs()
+            // Optional: Stop and remove the container if it exists
+            sh 'docker stop spotify-web-container || true'
+            sh 'docker rm spotify-web-container || true'
+        }
+        success {
+            echo 'Pipeline completed successfully!'
+        }
+        failure {
+            echo 'Pipeline failed. Check the logs for details.'
         }
     }
 }
