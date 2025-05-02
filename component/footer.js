@@ -81,12 +81,7 @@ class Footer extends HTMLElement{
 							</li>
 						</ul>
 					</div>
-					<div class="tr">
-						<a href="" class="">
-							INDIA
-							<img src="./assets/in.svg" alt="" class="" />
-						</a>
-					</div>
+					
 					<div class="footer_bot">
 						<ul class="">
 							<li class="">
@@ -105,7 +100,7 @@ class Footer extends HTMLElement{
 								<a href="" class="">About Ads</a>
 							</li>
 						</ul>
-						<span> © 2023 Spotify IN </span>
+						<span> © 2025 Spotify IN </span>
 					</div>
 				</div>
 			</div>
