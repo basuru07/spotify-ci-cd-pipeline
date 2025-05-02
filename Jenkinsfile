@@ -3,7 +3,7 @@ pipeline {
 
     environment {
         DOCKERHUB_CREDENTIALS = credentials('docker-credentials-id')
-        IMAGE_NAME = "your-dockerhub-username/spotify-web"
+        IMAGE_NAME = "basuruyasaruwan/spotify-web"
     }
 
     stages {
