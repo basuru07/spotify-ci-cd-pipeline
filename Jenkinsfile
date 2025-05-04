@@ -27,9 +27,9 @@ pipeline {
 
         stage('Test') {
             steps {
+                sh 'npm install -g htmlhint' // Install htmlhint if not present
                 sh 'echo "Running basic validation checks"'
-                // Add HTML validation with htmlhint (install it first via npm if needed)
-                sh 'htmlhint *.html || true' // || true to avoid failing the pipeline
+                sh 'htmlhint *.html || true' // Validate HTML files
             }
         }
 
