@@ -36,16 +36,45 @@ pipeline {
         stage('Push to Docker Hub') {
             steps {
                 script {
+                    // Print Docker version for debugging
+                    sh 'docker --version'
+                    
+                    // Check if Docker daemon is running
+                    sh 'docker ps -q || echo "Docker daemon not running"'
+                    
+                    // Debug credential variables (safely)
+                    sh 'echo "Using DockerHub username: $DOCKERHUB_CREDENTIALS_USR"'
+                    sh 'echo "Credential ID exists: $(test -n "$DOCKERHUB_CREDENTIALS_PSW" && echo true || echo false)"'
+
                     try {
-                        // Login to Docker Hub
-                        sh 'echo $DOCKERHUB_CREDENTIALS_PSW | docker login -u $DOCKERHUB_CREDENTIALS_USR --password-stdin'
-                        
-                        // Push the image
-                        sh "docker push ${IMAGE_NAME}:latest"
-                        
-                        // Logout for security
-                        sh 'docker logout'
+                        // More robust Docker Hub login
+                        withCredentials([usernamePassword(credentialsId: 'docker-credentials-id', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+                            sh '''
+                                echo "Logging in to Docker Hub..."
+                                echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
+                                if [ $? -ne 0 ]; then
+                                    echo "Docker login failed"
+                                    exit 1
+                                fi
+                                echo "Docker login successful"
+                            '''
+                            
+                            // Push the image
+                            sh """
+                                echo "Pushing image ${IMAGE_NAME}:latest to Docker Hub..."
+                                docker push ${IMAGE_NAME}:latest
+                                if [ \$? -ne 0 ]; then
+                                    echo "Docker push failed"
+                                    exit 1
+                                fi
+                                echo "Docker push successful"
+                            """
+                            
+                            // Logout for security
+                            sh 'docker logout'
+                        }
                     } catch (Exception e) {
+                        echo "Full error details: ${e}"
                         error "Push to Docker Hub failed: ${e.message}"
                     }
                 }
