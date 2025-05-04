@@ -2,8 +2,12 @@ pipeline {
     agent any
     
     environment {
-        DOCKERHUB_CREDENTIALS = credentials('docker-credentials-id')
-        IMAGE_NAME = "basuruyasaruwan/spotify-clone"  // Fixed image name as requested
+        // Define Docker Hub credentials - use your actual DockerHub username here
+        DOCKER_USERNAME = "basuruyasaruwan"
+        // The image name without username prefix (we'll add it in the commands)
+        IMAGE_NAME = "spotify-clone"
+        // Using Jenkins credential store
+        DOCKER_CREDENTIALS = credentials('docker-credentials-id')
     }
     
     stages {
@@ -15,102 +19,60 @@ pipeline {
         
         stage('Build Docker Image') {
             steps {
-                script {
-                    try {
-                        sh "docker build -t ${IMAGE_NAME}:latest --no-cache ."
-                    } catch (Exception e) {
-                        error "Docker build failed: ${e.message}"
-                    }
-                }
+                sh "docker build -t ${DOCKER_USERNAME}/${IMAGE_NAME}:latest --no-cache ."
             }
         }
         
         stage('Test') {
             steps {
-                sh 'npm install -g htmlhint || true' // Install htmlhint if not present
+                sh 'npm install -g htmlhint || true'
                 sh 'echo "Running basic validation checks"'
-                sh 'htmlhint *.html || true' // Validate HTML files
+                sh 'htmlhint *.html || true'
+            }
+        }
+        
+        stage('Manual Docker Login') {
+            steps {
+                // This approach directly uses the credential variables
+                sh '''
+                    echo "Attempting manual Docker login..."
+                    echo $DOCKER_CREDENTIALS_PSW | docker login -u $DOCKER_CREDENTIALS_USR --password-stdin
+                '''
             }
         }
         
         stage('Push to Docker Hub') {
             steps {
-                script {
-                    // Print Docker version for debugging
-                    sh 'docker --version'
-                    
-                    // Check if Docker daemon is running
-                    sh 'docker ps -q || echo "Docker daemon not running"'
-                    
-                    // Debug credential variables (safely)
-                    sh 'echo "Using DockerHub username: $DOCKERHUB_CREDENTIALS_USR"'
-                    sh 'echo "Credential ID exists: $(test -n "$DOCKERHUB_CREDENTIALS_PSW" && echo true || echo false)"'
-
-                    try {
-                        // More robust Docker Hub login
-                        withCredentials([usernamePassword(credentialsId: 'docker-credentials-id', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-                            sh '''
-                                echo "Logging in to Docker Hub..."
-                                echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
-                                if [ $? -ne 0 ]; then
-                                    echo "Docker login failed"
-                                    exit 1
-                                fi
-                                echo "Docker login successful"
-                            '''
-                            
-                            // Push the image
-                            sh """
-                                echo "Pushing image ${IMAGE_NAME}:latest to Docker Hub..."
-                                docker push ${IMAGE_NAME}:latest
-                                if [ \$? -ne 0 ]; then
-                                    echo "Docker push failed"
-                                    exit 1
-                                fi
-                                echo "Docker push successful"
-                            """
-                            
-                            // Logout for security
-                            sh 'docker logout'
-                        }
-                    } catch (Exception e) {
-                        echo "Full error details: ${e}"
-                        error "Push to Docker Hub failed: ${e.message}"
-                    }
-                }
+                // Push using the fully qualified image name
+                sh "docker push ${DOCKER_USERNAME}/${IMAGE_NAME}:latest"
+                sh "docker logout"
             }
         }
         
         stage('Deploy') {
             steps {
-                script {
-                    try {
-                        // Stop and remove any existing container with the specified name
-                        sh 'docker stop spotify-clone || true'
-                        sh 'docker rm spotify-clone || true'
-                        
-                        // Run the new container with the correct name
-                        sh "docker run -d --name spotify-clone -p 8081:80 ${IMAGE_NAME}:latest"
-                        
-                        echo "Application deployed successfully at http://localhost:8081"
-                    } catch (Exception e) {
-                        error "Deployment failed: ${e.message}"
-                    }
-                }
+                // Stop and remove any existing container
+                sh 'docker stop spotify-clone || true'
+                sh 'docker rm spotify-clone || true'
+                
+                // Run the new container
+                sh "docker run -d --name spotify-clone -p 8081:80 ${DOCKER_USERNAME}/${IMAGE_NAME}:latest"
+                
+                echo "Application deployed successfully at http://localhost:8081"
             }
         }
     }
     
     post {
-        always {
-            // Clean up workspace
-            cleanWs()
-        }
         success {
             echo 'Pipeline completed successfully!'
         }
         failure {
             echo 'Pipeline failed. Check the logs for details.'
+        }
+        always {
+            // Clean up workspace but don't remove the running container
+            cleanWs()
         }
     }
 }
