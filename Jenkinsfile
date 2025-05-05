@@ -2,77 +2,102 @@ pipeline {
     agent any
     
     environment {
-        // Define Docker Hub credentials - use your actual DockerHub username here
-        DOCKER_USERNAME = "basuruyasaruwan"
-        // The image name without username prefix (we'll add it in the commands)
-        IMAGE_NAME = "spotify-clone"
-        // Using Jenkins credential store
-        DOCKER_CREDENTIALS = credentials('docker-credentials-id')
+        DOCKERHUB_CREDENTIALS = credentials('docker-credentials-id')
+        IMAGE_NAME = "basuruyasaruwan/spotify-clone"
     }
     
     stages {
         stage('Checkout') {
             steps {
-                git url: 'https://github.com/basuru07/spotify-ci-cd-pipeline', branch: 'main'
+                bat 'git config --global --add safe.directory %CD%'
+                git url: 'https://github.com/basuru07/spotify-ci-cd-pipeline', branch: 'main', credentialsId: 'github-token'
             }
         }
         
         stage('Build Docker Image') {
             steps {
-                sh "docker build -t ${DOCKER_USERNAME}/${IMAGE_NAME}:latest --no-cache ."
+                script {
+                    try {
+                        bat "docker build -t %IMAGE_NAME%:latest --no-cache ."
+                    } catch (Exception e) {
+                        echo "Docker build failed: ${e.message}"
+                        error "Build failed"
+                    }
+                }
             }
         }
         
         stage('Test') {
             steps {
-                sh 'npm install -g htmlhint || true'
-                sh 'echo "Running basic validation checks"'
-                sh 'htmlhint *.html || true'
-            }
-        }
-        
-        stage('Manual Docker Login') {
-            steps {
-                // This approach directly uses the credential variables
-                sh '''
-                    echo "Attempting manual Docker login..."
-                    echo $DOCKER_CREDENTIALS_PSW | docker login -u $DOCKER_CREDENTIALS_USR --password-stdin
-                '''
+                bat 'npm install -g htmlhint || exit /b 0'
+                bat 'echo Running basic validation checks'
+                bat 'htmlhint *.html || exit /b 0'
             }
         }
         
         stage('Push to Docker Hub') {
             steps {
-                // Push using the fully qualified image name
-                sh "docker push ${DOCKER_USERNAME}/${IMAGE_NAME}:latest"
-                sh "docker logout"
+                script {
+                    bat 'docker --version'
+                    bat 'docker ps -q || echo Docker daemon not running'
+                    bat 'echo Using DockerHub username: %DOCKERHUB_CREDENTIALS_USR%'
+                    bat 'if not defined DOCKERHUB_CREDENTIALS_PSW echo Credential password not set'
+                    
+                    try {
+                        withCredentials([usernamePassword(credentialsId: 'docker-credentials-id', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+                            bat '''
+                                echo Logging in to Docker Hub...
+                                echo %DOCKER_PASS% | docker login -u %DOCKER_USER% --password-stdin
+                                if %ERRORLEVEL% neq 0 (
+                                    echo Docker login failed
+                                    exit /b 1
+                                )
+                                echo Docker login successful
+                                echo Pushing image %IMAGE_NAME%:latest to Docker Hub...
+                                docker push %IMAGE_NAME%:latest
+                                if %ERRORLEVEL% neq 0 (
+                                    echo Docker push failed
+                                    exit /b 1
+                                )
+                                echo Docker push successful
+                                docker logout
+                            '''
+                        }
+                    } catch (Exception e) {
+                        echo "Full error details: ${e}"
+                        error "Push to Docker Hub failed: ${e.message}"
+                    }
+                }
             }
         }
         
         stage('Deploy') {
             steps {
-                // Stop and remove any existing container
-                sh 'docker stop spotify-clone || true'
-                sh 'docker rm spotify-clone || true'
-                
-                // Run the new container
-                sh "docker run -d --name spotify-clone -p 8081:80 ${DOCKER_USERNAME}/${IMAGE_NAME}:latest"
-                
-                echo "Application deployed successfully at http://localhost:8081"
+                script {
+                    try {
+                        bat 'docker stop spotify-clone-container || exit /b 0'
+                        bat 'docker rm spotify-clone-container || exit /b 0'
+                        bat "docker run -d --name spotify-clone-container -p 8082:80 %IMAGE_NAME%:latest"
+                        echo Application deployed successfully at http://localhost:8082
+                    } catch (Exception e) {
+                        echo "Deployment failed: ${e.message}"
+                        error "Deploy failed"
+                    }
+                }
             }
         }
     }
     
     post {
+        always {
+            bat 'docker images -q | ForEach-Object { docker rmi $_ -f } || exit /b 0'
+            cleanWs()
+        }
         success {
             echo 'Pipeline completed successfully!'
         }
         failure {
             echo 'Pipeline failed. Check the logs for details.'
-        }
-        always {
-            // Clean up workspace but don't remove the running container
-            cleanWs()
         }
     }
 }
